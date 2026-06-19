@@ -32,6 +32,17 @@ async function run() {
     const database = client.db("smart-nest");
     const propertiesCollection = database.collection("properties");
 
+
+    app.get("/api/properties",async(req,res)=>{
+      const query={};
+      if(req.query.userId){
+        query.userId=req.query.userId
+      }
+      const cursor= propertiesCollection.find(query)
+      const result=await cursor.toArray();
+      res.send(result)
+    })
+
     app.post("/api/properties", async (req, res) => {
       const property = req.body;
       const newProperty = {
