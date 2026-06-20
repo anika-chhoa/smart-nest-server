@@ -52,6 +52,12 @@ async function run() {
       res.send(result);
     });
 
+    app.get("/api/properties/:id",async(req,res)=>{
+      const {id}=req.params;
+      const result=await propertiesCollection.findOne({_id: new ObjectId(id)});
+      res.send(result)
+    })
+
     app.post("/api/properties", async (req, res) => {
       const property = req.body;
       const newProperty = {
