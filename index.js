@@ -32,16 +32,15 @@ async function run() {
     const database = client.db("smart-nest");
     const propertiesCollection = database.collection("properties");
 
-
-    app.get("/api/properties",async(req,res)=>{
-      const query={};
-      if(req.query.userId){
-        query.userId=req.query.userId
+    app.get("/api/properties", async (req, res) => {
+      const query = {};
+      if (req.query.userId) {
+        query.userId = req.query.userId;
       }
-      const cursor= propertiesCollection.find(query)
-      const result=await cursor.toArray();
-      res.send(result)
-    })
+      const cursor = propertiesCollection.find(query);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
 
     app.post("/api/properties", async (req, res) => {
       const property = req.body;
@@ -53,14 +52,27 @@ async function run() {
       res.send(result);
     });
 
-    app.delete("/api/properties/:id",async(req,res)=>{
-      const id= req.params.id;
-      const query={
-        _id: new ObjectId(id)
-      }
-      const result= await propertiesCollection.deleteOne(query);
-      res.send(result)
-    })
+    app.patch("/api/properties/:id", async (req, res) => {
+      const id = req.params.id;
+      const updatedData = req.body;
+
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: updatedData,
+      };
+
+      const result = await propertiesCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    app.delete("/api/properties/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = {
+        _id: new ObjectId(id),
+      };
+      const result = await propertiesCollection.deleteOne(query);
+      res.send(result);
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
