@@ -31,7 +31,17 @@ async function run() {
 
     const database = client.db("smart-nest");
     const propertiesCollection = database.collection("properties");
+    const userCollection=database.collection("user");
 
+
+
+    //all users
+    app.get("/api/user",async(req,res)=>{
+      const result=await userCollection.find().toArray();
+      res.send(result)
+    })
+    
+    //properties
     app.get("/api/properties", async (req, res) => {
       const query = {};
       if (req.query.userId) {
