@@ -31,18 +31,16 @@ async function run() {
 
     const database = client.db("smart-nest");
     const propertiesCollection = database.collection("properties");
-    const userCollection=database.collection("user");
-    const bookingCollection=database.collection("booking");
-    const reviewCollection=database.collection("reviews")
-
-
+    const userCollection = database.collection("user");
+    const bookingCollection = database.collection("booking");
+    const reviewCollection = database.collection("reviews");
 
     //all users
-    app.get("/api/user",async(req,res)=>{
-      const result=await userCollection.find().toArray();
-      res.send(result)
-    })
-    
+    app.get("/api/user", async (req, res) => {
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
+
     //properties
     app.get("/api/properties", async (req, res) => {
       const query = {};
@@ -54,11 +52,13 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/api/properties/:id",async(req,res)=>{
-      const {id}=req.params;
-      const result=await propertiesCollection.findOne({_id: new ObjectId(id)});
-      res.send(result)
-    })
+    app.get("/api/properties/:id", async (req, res) => {
+      const { id } = req.params;
+      const result = await propertiesCollection.findOne({
+        _id: new ObjectId(id),
+      });
+      res.send(result);
+    });
 
     app.post("/api/properties", async (req, res) => {
       const property = req.body;
@@ -92,45 +92,82 @@ async function run() {
       res.send(result);
     });
 
-
     //booking
-    app.post("/api/bookings",async(req,res)=>{
-      const {sessionId,tenantId,tenantEmail,propertyId,title,price,location,rentType,tenantFullName,moveInDate,contactNumber,additionalNotes,BookingStatus,ownerId,ownerName,ownerEmail}=req.body;
-      const isExist=await bookingCollection.findOne({sessionId});
-      if(isExist){
-        return res.json({msg:"Already Exists!"})
+    app.get("/api/bookings",async(req,res)=>{
+      const query = {};
+      if (req.query.userId) {
+        query.userId = req.query.userId;
       }
-      await bookingCollection.insertOne({sessionId,tenantId,tenantEmail,propertyId,title,price,location,rentType,tenantFullName,moveInDate,contactNumber,additionalNotes,BookingStatus,ownerId,ownerName,ownerEmail});
-      res.json({msg:"Payment Successful"})
+      const cursor = bookingCollection.find(query);
+      const result = await cursor.toArray();
+      res.send(result)
     })
+
+
+    app.post("/api/bookings", async (req, res) => {
+      const {
+        sessionId,
+        tenantId,
+        tenantEmail,
+        propertyId,
+        title,
+        price,
+        location,
+        rentType,
+        tenantFullName,
+        moveInDate,
+        contactNumber,
+        additionalNotes,
+        BookingStatus,
+        ownerId,
+        ownerName,
+        ownerEmail,
+      } = req.body;
+      const isExist = await bookingCollection.findOne({ sessionId });
+      if (isExist) {
+        return res.json({ msg: "Already Exists!" });
+      }
+      await bookingCollection.insertOne({
+        sessionId,
+        tenantId,
+        tenantEmail,
+        propertyId,
+        title,
+        price,
+        location,
+        rentType,
+        tenantFullName,
+        moveInDate,
+        contactNumber,
+        additionalNotes,
+        BookingStatus,
+        ownerId,
+        ownerName,
+        ownerEmail,
+      });
+      res.json({ msg: "Payment Successful" });
+    });
 
     //reviews
     app.post("/api/reviews", async (req, res) => {
-  try {
-    const review = req.body;
-    const updatedReview = {
-      ...review,
-      createdAt: new Date(),
-    };
-    
-    const result = await reviewCollection.insertOne(updatedReview);
-    
-    // Explicitly send back a JSON payload with the inserted ID
-    res.status(201).json({ 
-      success: true,
-      insertedId: result.insertedId 
+      try {
+        const review = req.body;
+        const updatedReview = {
+          ...review,
+          createdAt: new Date(),
+        };
+
+        const result = await reviewCollection.insertOne(updatedReview);
+
+        // Explicitly send back a JSON payload with the inserted ID
+        res.status(201).json({
+          success: true,
+          insertedId: result.insertedId,
+        });
+      } catch (error) {
+        res.status(500).json({ error: "Failed to add review" });
+      }
     });
-  } catch (error) {
-    res.status(500).json({ error: "Failed to add review" });
-  }
-});
-
-
-
-
-
-
-
 
     await client.db("admin").command({ ping: 1 });
     console.log(
