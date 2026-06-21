@@ -34,6 +34,7 @@ async function run() {
     const userCollection = database.collection("user");
     const bookingCollection = database.collection("booking");
     const reviewCollection = database.collection("reviews");
+    const favoriteCollection=database.collection("favorites")
 
     //all users
     app.get("/api/user", async (req, res) => {
@@ -93,16 +94,19 @@ async function run() {
     });
 
     //booking
-    app.get("/api/bookings",async(req,res)=>{
+    app.get("/api/bookings", async (req, res) => {
       const query = {};
-      if (req.query.userId) {
-        query.userId = req.query.userId;
+      if (req.query.tenantId) {
+        query.tenantId = req.query.tenantId;
+      }
+
+      if (req.query.ownerId) {
+        query.ownerId = req.query.ownerId;
       }
       const cursor = bookingCollection.find(query);
       const result = await cursor.toArray();
-      res.send(result)
-    })
-
+      res.send(result);
+    });
 
     app.post("/api/bookings", async (req, res) => {
       const {
@@ -122,6 +126,7 @@ async function run() {
         ownerId,
         ownerName,
         ownerEmail,
+        image
       } = req.body;
       const isExist = await bookingCollection.findOne({ sessionId });
       if (isExist) {
@@ -144,6 +149,7 @@ async function run() {
         ownerId,
         ownerName,
         ownerEmail,
+        image
       });
       res.json({ msg: "Payment Successful" });
     });
@@ -159,7 +165,6 @@ async function run() {
 
         const result = await reviewCollection.insertOne(updatedReview);
 
-        // Explicitly send back a JSON payload with the inserted ID
         res.status(201).json({
           success: true,
           insertedId: result.insertedId,
@@ -168,6 +173,22 @@ async function run() {
         res.status(500).json({ error: "Failed to add review" });
       }
     });
+
+
+    //favorites
+    app.post("/api/favorites",async(req,res)=>{
+      const favorite=req.body;
+      const isExist= await favoriteCollection.findOne({propertyId:favorite.propertyId})
+      if(isExist){
+        return res.json({ msg: "Already Exists!" });
+      }
+      const updatedFavorite={
+        ...favorite,
+        createdAt: new Date(),
+      }
+      const result=await favoriteCollection.insertOne(updatedFavorite);
+      res.send(result)
+    })
 
     await client.db("admin").command({ ping: 1 });
     console.log(
