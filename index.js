@@ -33,6 +33,7 @@ async function run() {
     const propertiesCollection = database.collection("properties");
     const userCollection=database.collection("user");
     const bookingCollection=database.collection("booking");
+    const reviewCollection=database.collection("reviews")
 
 
 
@@ -94,14 +95,42 @@ async function run() {
 
     //booking
     app.post("/api/bookings",async(req,res)=>{
-      const {sessionId,userId,propertyId,title,price,location,rentType,userInfo,moveInDate,contactNumber,additionalNotes,userEmail}=req.body;
+      const {sessionId,tenantId,tenantEmail,propertyId,title,price,location,rentType,tenantFullName,moveInDate,contactNumber,additionalNotes,BookingStatus,ownerId,ownerName,ownerEmail}=req.body;
       const isExist=await bookingCollection.findOne({sessionId});
       if(isExist){
         return res.json({msg:"Already Exists!"})
       }
-      await bookingCollection.insertOne({sessionId,userId,propertyId,title,price,location,rentType,userInfo,moveInDate,contactNumber,additionalNotes,userEmail});
+      await bookingCollection.insertOne({sessionId,tenantId,tenantEmail,propertyId,title,price,location,rentType,tenantFullName,moveInDate,contactNumber,additionalNotes,BookingStatus,ownerId,ownerName,ownerEmail});
       res.json({msg:"Payment Successful"})
     })
+
+    //reviews
+    app.post("/api/reviews", async (req, res) => {
+  try {
+    const review = req.body;
+    const updatedReview = {
+      ...review,
+      createdAt: new Date(),
+    };
+    
+    const result = await reviewCollection.insertOne(updatedReview);
+    
+    // Explicitly send back a JSON payload with the inserted ID
+    res.status(201).json({ 
+      success: true,
+      insertedId: result.insertedId 
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to add review" });
+  }
+});
+
+
+
+
+
+
+
 
     await client.db("admin").command({ ping: 1 });
     console.log(
