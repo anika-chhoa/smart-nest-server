@@ -32,6 +32,7 @@ async function run() {
     const database = client.db("smart-nest");
     const propertiesCollection = database.collection("properties");
     const userCollection=database.collection("user");
+    const bookingCollection=database.collection("booking");
 
 
 
@@ -89,6 +90,18 @@ async function run() {
       const result = await propertiesCollection.deleteOne(query);
       res.send(result);
     });
+
+
+    //booking
+    app.post("/api/bookings",async(req,res)=>{
+      const {sessionId,userId,propertyId,title,price,location,rentType,userInfo,moveInDate,contactNumber,additionalNotes,userEmail}=req.body;
+      const isExist=await bookingCollection.findOne({sessionId});
+      if(isExist){
+        return res.json({msg:"Already Exists!"})
+      }
+      await bookingCollection.insertOne({sessionId,userId,propertyId,title,price,location,rentType,userInfo,moveInDate,contactNumber,additionalNotes,userEmail});
+      res.json({msg:"Payment Successful"})
+    })
 
     await client.db("admin").command({ ping: 1 });
     console.log(
