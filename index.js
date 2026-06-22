@@ -34,7 +34,7 @@ async function run() {
     const userCollection = database.collection("user");
     const bookingCollection = database.collection("booking");
     const reviewCollection = database.collection("reviews");
-    const favoriteCollection=database.collection("favorites")
+    const favoriteCollection = database.collection("favorites");
 
     //all users
     app.get("/api/user", async (req, res) => {
@@ -44,11 +44,30 @@ async function run() {
 
     //properties
     app.get("/api/properties", async (req, res) => {
-      const query = {};
+      let query = {};
+
+      if (req.query.search && req.query.search !== "undefined") {
+        query.location = { $regex: req.query.search, $options: "i" };
+      }
+
+      if (req.query.propertyType) {
+        query.propertyType = req.query.propertyType;
+      }
       if (req.query.userId) {
         query.userId = req.query.userId;
       }
-      const cursor = propertiesCollection.find(query);
+
+      let sortObj = {};
+
+      if (req.query.sort) {
+        if (req.query.sort === "low-to-high") {
+          sortObj.rentPrice = 1;
+        } else if (req.query.sort === "high-to-low") {
+          sortObj.rentPrice = -1;
+        }
+      }
+
+      const cursor = propertiesCollection.find(query).sort(sortObj);
       const result = await cursor.toArray();
       res.send(result);
     });
@@ -126,7 +145,7 @@ async function run() {
         ownerId,
         ownerName,
         ownerEmail,
-        image
+        image,
       } = req.body;
       const isExist = await bookingCollection.findOne({ sessionId });
       if (isExist) {
@@ -149,7 +168,7 @@ async function run() {
         ownerId,
         ownerName,
         ownerEmail,
-        image
+        image,
       });
       res.json({ msg: "Payment Successful" });
     });
@@ -174,21 +193,52 @@ async function run() {
       }
     });
 
-
     //favorites
-    app.post("/api/favorites",async(req,res)=>{
-      const favorite=req.body;
-      const isExist= await favoriteCollection.findOne({propertyId:favorite.propertyId})
-      if(isExist){
-        return res.json({ msg: "Already Exists!" });
+    app.get("/api/favorites", async (req, res) => {
+      const query = {};
+      if (req.query.tenantId) {
+        query.tenantId = req.query.tenantId;
       }
-      const updatedFavorite={
-        ...favorite,
-        createdAt: new Date(),
+      if (req.query.propertyId) {
+        query.propertyId = req.query.propertyId;
       }
-      const result=await favoriteCollection.insertOne(updatedFavorite);
-      res.send(result)
-    })
+      const cursor = favoriteCollection.find(query);
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    app.post("/api/favorites", async (req, res) => {
+      try {
+        const favorite = req.body;
+        const isExist = await favoriteCollection.findOne({
+          tenantId: favorite.tenantId,
+          propertyId: favorite.propertyId,
+        });
+
+        if (isExist) {
+          return res.json({ msg: "Already Exists!" });
+        }
+
+        const updatedFavorite = {
+          ...favorite,
+          createdAt: new Date(),
+        };
+
+        const result = await favoriteCollection.insertOne(updatedFavorite);
+        return res.json(result);
+      } catch (error) {
+        return res.status(500).json({ error: "Failed to insert favorite" });
+      }
+    });
+
+    app.delete("/api/favorites/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = {
+        _id: new ObjectId(id),
+      };
+      const result = await favoriteCollection.deleteOne(query);
+      res.send(result);
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
