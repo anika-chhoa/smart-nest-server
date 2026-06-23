@@ -44,6 +44,8 @@ async function run() {
 
     //properties
     app.get("/api/properties", async (req, res) => {
+      const {page=1, limit=9}=req.query;
+      const skip=(Number(page)-1)*Number(limit);
       let query = {};
 
       if (req.query.search && req.query.search !== "undefined") {
@@ -57,20 +59,32 @@ async function run() {
         query.userId = req.query.userId;
       }
 
-      let sortObj = {};
+      if (req.query.minPrice || req.query.maxPrice) {
+        const min = req.query.minPrice ? Number(req.query.minPrice) : null;
+        const max = req.query.maxPrice ? Number(req.query.maxPrice) : null;
 
-      if (req.query.sort) {
-        if (req.query.sort === "low-to-high") {
-          sortObj.rentPrice = 1;
-        } else if (req.query.sort === "high-to-low") {
-          sortObj.rentPrice = -1;
-        }
+     
+        query.$expr = {
+          $and: [
+            ...(min !== null
+              ? [{ $gte: [{ $toDouble: "$rentPrice" }, min] }]
+              : []),
+            ...(max !== null
+              ? [{ $lte: [{ $toDouble: "$rentPrice" }, max] }]
+              : []),
+          ],
+        };
       }
 
-      const cursor = propertiesCollection.find(query).sort(sortObj);
+
+      const cursor = propertiesCollection.find(query).skip(skip).limit(Number(limit));
       const result = await cursor.toArray();
-      res.send(result);
+      const totalData=await propertiesCollection.countDocuments(query);
+      const totalPage=Math.ceil(totalData/Number(limit))
+      res.send({data:result, page:Number(page), totalPage,totalData});
     });
+
+   
 
     app.get("/api/properties/:id", async (req, res) => {
       const { id } = req.params;
