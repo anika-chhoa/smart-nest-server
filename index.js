@@ -46,23 +46,20 @@ async function run() {
     app.get("/api/properties", async (req, res) => {
       const { page = 1, limit = 9 } = req.query;
       const skip = (Number(page) - 1) * Number(limit);
-      let query = {};
 
+      let query = {};
       if (req.query.search && req.query.search !== "undefined") {
         query.location = { $regex: req.query.search, $options: "i" };
       }
-
       if (req.query.propertyType) {
         query.propertyType = req.query.propertyType;
       }
       if (req.query.userId) {
         query.userId = req.query.userId;
       }
-
       if (req.query.minPrice || req.query.maxPrice) {
         const min = req.query.minPrice ? Number(req.query.minPrice) : null;
         const max = req.query.maxPrice ? Number(req.query.maxPrice) : null;
-
         query.$expr = {
           $and: [
             ...(min !== null
@@ -75,13 +72,33 @@ async function run() {
         };
       }
 
-      const cursor = propertiesCollection
-        .find(query)
-        .skip(skip)
-        .limit(Number(limit));
-      const result = await cursor.toArray();
+      let sortDirection = 0;
+      if (req.query.sort === "low-to-high") {
+        sortDirection = 1;
+      } else if (req.query.sort === "high-to-low") {
+        sortDirection = -1;
+      }
+
+      let pipeline = [{ $match: query }];
+
+      if (sortDirection !== 0) {
+        pipeline.push(
+          {
+            $addFields: {
+              numericRentPrice: { $toDouble: "$rentPrice" },
+            },
+          },
+          { $sort: { numericRentPrice: sortDirection } },
+        );
+      }
+
+      pipeline.push({ $skip: skip }, { $limit: Number(limit) });
+
+      const result = await propertiesCollection.aggregate(pipeline).toArray();
+
       const totalData = await propertiesCollection.countDocuments(query);
       const totalPage = Math.ceil(totalData / Number(limit));
+
       res.send({ data: result, page: Number(page), totalPage, totalData });
     });
 
