@@ -44,8 +44,8 @@ async function run() {
 
     //properties
     app.get("/api/properties", async (req, res) => {
-      const {page=1, limit=9}=req.query;
-      const skip=(Number(page)-1)*Number(limit);
+      const { page = 1, limit = 9 } = req.query;
+      const skip = (Number(page) - 1) * Number(limit);
       let query = {};
 
       if (req.query.search && req.query.search !== "undefined") {
@@ -63,7 +63,6 @@ async function run() {
         const min = req.query.minPrice ? Number(req.query.minPrice) : null;
         const max = req.query.maxPrice ? Number(req.query.maxPrice) : null;
 
-     
         query.$expr = {
           $and: [
             ...(min !== null
@@ -76,15 +75,15 @@ async function run() {
         };
       }
 
-
-      const cursor = propertiesCollection.find(query).skip(skip).limit(Number(limit));
+      const cursor = propertiesCollection
+        .find(query)
+        .skip(skip)
+        .limit(Number(limit));
       const result = await cursor.toArray();
-      const totalData=await propertiesCollection.countDocuments(query);
-      const totalPage=Math.ceil(totalData/Number(limit))
-      res.send({data:result, page:Number(page), totalPage,totalData});
+      const totalData = await propertiesCollection.countDocuments(query);
+      const totalPage = Math.ceil(totalData / Number(limit));
+      res.send({ data: result, page: Number(page), totalPage, totalData });
     });
-
-   
 
     app.get("/api/properties/:id", async (req, res) => {
       const { id } = req.params;
@@ -138,6 +137,21 @@ async function run() {
       }
       const cursor = bookingCollection.find(query);
       const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    app.patch("/api/bookings/:id", async (req, res) => {
+      const { id } = req.params;
+      const { BookingStatus } = req.body;
+
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: {
+          BookingStatus: BookingStatus,
+        },
+      };
+
+      const result = await bookingCollection.updateOne(filter, updateDoc);
       res.send(result);
     });
 
