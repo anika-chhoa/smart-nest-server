@@ -42,7 +42,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/api/users/:id",async(req,res)=>{
+    app.patch("/api/users/:id", async (req, res) => {
       const id = req.params.id;
       const { role } = req.body;
 
@@ -53,11 +53,11 @@ async function run() {
 
       const result = await userCollection.updateOne(filter, updateDoc);
       res.send(result);
-    })
+    });
 
     //properties
     app.get("/api/properties", async (req, res) => {
-      const { page = 1, limit = 9 } = req.query;
+      const { page = 1, limit = 9, all } = req.query;
       const skip = (Number(page) - 1) * Number(limit);
 
       let query = {};
@@ -105,7 +105,10 @@ async function run() {
         );
       }
 
-      pipeline.push({ $skip: skip }, { $limit: Number(limit) });
+      if (all !== "true") {
+        const skip = (Number(page) - 1) * Number(limit);
+        pipeline.push({ $skip: skip }, { $limit: Number(limit) });
+      }
 
       const result = await propertiesCollection.aggregate(pipeline).toArray();
 
@@ -188,6 +191,8 @@ async function run() {
     app.post("/api/bookings", async (req, res) => {
       const {
         sessionId,
+        transactionId,
+        chargeId,
         tenantId,
         tenantEmail,
         propertyId,
@@ -211,6 +216,8 @@ async function run() {
       }
       await bookingCollection.insertOne({
         sessionId,
+        transactionId,
+        chargeId,
         tenantId,
         tenantEmail,
         propertyId,
