@@ -35,6 +35,7 @@ async function run() {
     const bookingCollection = database.collection("booking");
     const reviewCollection = database.collection("reviews");
     const favoriteCollection = database.collection("favorites");
+    const RejectionReasonCollection = database.collection("rejections");
 
     //all users
     app.get("/api/users", async (req, res) => {
@@ -304,6 +305,18 @@ async function run() {
       const result = await favoriteCollection.deleteOne(query);
       res.send(result);
     });
+
+
+    //rejection reasons
+    app.post("/api/rejections",async(req,res)=>{
+      const rejection = req.body;
+      const newRejection = {
+        ...rejection,
+        createdAt: new Date(),
+      };
+      const result = await RejectionReasonCollection.insertOne(newRejection);
+      res.send(result);
+    })
 
     await client.db("admin").command({ ping: 1 });
     console.log(
