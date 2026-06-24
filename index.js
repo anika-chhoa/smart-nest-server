@@ -62,6 +62,9 @@ async function run() {
       const skip = (Number(page) - 1) * Number(limit);
 
       let query = {};
+      if (req.query.status) {
+        query.status = req.query.status;
+      }
       if (req.query.search && req.query.search !== "undefined") {
         query.location = { $regex: req.query.search, $options: "i" };
       }
@@ -156,6 +159,16 @@ async function run() {
         _id: new ObjectId(id),
       };
       const result = await propertiesCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    //Homepage properties
+    app.get("/api/home-properties", async (req, res) => {
+      const result = await propertiesCollection
+        .find({ status: "approved" })
+        .limit(6)
+        .toArray();
+
       res.send(result);
     });
 
@@ -306,9 +319,8 @@ async function run() {
       res.send(result);
     });
 
-
     //rejection reasons
-    app.post("/api/rejections",async(req,res)=>{
+    app.post("/api/rejections", async (req, res) => {
       const rejection = req.body;
       const newRejection = {
         ...rejection,
@@ -316,7 +328,7 @@ async function run() {
       };
       const result = await RejectionReasonCollection.insertOne(newRejection);
       res.send(result);
-    })
+    });
 
     await client.db("admin").command({ ping: 1 });
     console.log(
