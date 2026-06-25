@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const app = express();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 require("dotenv").config();
 const port = 5000;
 
@@ -22,6 +23,57 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+
+const JWKS = createRemoteJWKSet(
+  new URL(`${process.env.CLIENT_URL}/api/auth/jwks`),
+);
+
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({
+      success: false,
+      message: "Access denied. No token provided.",
+    });
+  }
+  const token = authHeader.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+  try {
+    const { payload } = await jwtVerify(token, JWKS);
+    req.user = payload;
+    next();
+  } catch (error) {
+    console.error("Token verification failed:", error);
+    return res.status(403).json({
+      success: false,
+      message: "Invalid or expired token.",
+    });
+  }
+};
+const tenantVerify = async (req, res, next) => {
+  const user = req.user;
+  if (user.role !== "tenant") {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+  next();
+};
+const ownerVerify = async (req, res, next) => {
+  const user = req.user;
+  if (user.role !== "owner") {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+  next();
+};
+const adminVerify = async (req, res, next) => {
+  const user = req.user;
+  if (user.role !== "admin") {
+    return res.status(403).json({ message: "Forbidden" });
+  }
+  next();
+};
 
 async function run() {
   try {
@@ -122,7 +174,7 @@ async function run() {
       res.send({ data: result, page: Number(page), totalPage, totalData });
     });
 
-    app.get("/api/properties/:id", async (req, res) => {
+    app.get("/api/properties/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
       const result = await propertiesCollection.findOne({
         _id: new ObjectId(id),
@@ -130,7 +182,7 @@ async function run() {
       res.send(result);
     });
 
-    app.post("/api/properties", async (req, res) => {
+    app.post("/api/properties", verifyToken, ownerVerify, async (req, res) => {
       const property = req.body;
       const newProperty = {
         ...property,
@@ -140,27 +192,37 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/api/properties/:id", async (req, res) => {
-      const id = req.params.id;
-      const updatedData = req.body;
+    app.patch(
+      "/api/properties/:id",
+      verifyToken,
+      ownerVerify,
+      async (req, res) => {
+        const id = req.params.id;
+        const updatedData = req.body;
 
-      const filter = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: updatedData,
-      };
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = {
+          $set: updatedData,
+        };
 
-      const result = await propertiesCollection.updateOne(filter, updateDoc);
-      res.send(result);
-    });
+        const result = await propertiesCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      },
+    );
 
-    app.delete("/api/properties/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = {
-        _id: new ObjectId(id),
-      };
-      const result = await propertiesCollection.deleteOne(query);
-      res.send(result);
-    });
+    app.delete(
+      "/api/properties/:id",
+      verifyToken,
+      ownerVerify,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = {
+          _id: new ObjectId(id),
+        };
+        const result = await propertiesCollection.deleteOne(query);
+        res.send(result);
+      },
+    );
 
     //Homepage properties
     app.get("/api/home-properties", async (req, res) => {
@@ -202,7 +264,7 @@ async function run() {
       res.send(result);
     });
 
-    app.post("/api/bookings", async (req, res) => {
+    app.post("/api/bookings", verifyToken, tenantVerify, async (req, res) => {
       const {
         sessionId,
         transactionId,
@@ -286,7 +348,7 @@ async function run() {
       res.send(result);
     });
 
-    app.post("/api/favorites", async (req, res) => {
+    app.post("/api/favorites", verifyToken, tenantVerify, async (req, res) => {
       try {
         const favorite = req.body;
         const isExist = await favoriteCollection.findOne({
@@ -310,17 +372,22 @@ async function run() {
       }
     });
 
-    app.delete("/api/favorites/:id", async (req, res) => {
-      const id = req.params.id;
-      const query = {
-        _id: new ObjectId(id),
-      };
-      const result = await favoriteCollection.deleteOne(query);
-      res.send(result);
-    });
+    app.delete(
+      "/api/favorites/:id",
+      verifyToken,
+      tenantVerify,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = {
+          _id: new ObjectId(id),
+        };
+        const result = await favoriteCollection.deleteOne(query);
+        res.send(result);
+      },
+    );
 
     //rejection reasons
-    app.post("/api/rejections", async (req, res) => {
+    app.post("/api/rejections", verifyToken, adminVerify, async (req, res) => {
       const rejection = req.body;
       const newRejection = {
         ...rejection,
