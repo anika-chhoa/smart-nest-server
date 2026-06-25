@@ -249,20 +249,25 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/api/bookings/:id", verifyToken, ownerVerify, async (req, res) => {
-      const { id } = req.params;
-      const { BookingStatus } = req.body;
+    app.patch(
+      "/api/bookings/:id",
+      verifyToken,
+      ownerVerify,
+      async (req, res) => {
+        const { id } = req.params;
+        const { BookingStatus } = req.body;
 
-      const filter = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: {
-          BookingStatus: BookingStatus,
-        },
-      };
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = {
+          $set: {
+            BookingStatus: BookingStatus,
+          },
+        };
 
-      const result = await bookingCollection.updateOne(filter, updateDoc);
-      res.send(result);
-    });
+        const result = await bookingCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      },
+    );
 
     app.post("/api/bookings", verifyToken, tenantVerify, async (req, res) => {
       const {
@@ -477,7 +482,112 @@ async function run() {
       },
     );
 
-    
+    //admin analytics
+    app.get(
+      "/api/admin/analytics",
+      verifyToken,
+      adminVerify,
+      async (req, res) => {
+        try {
+          // 1. Platform-wide counts
+          const totalUsers = await userCollection.countDocuments();
+          const totalProperties = await propertiesCollection.countDocuments();
+          const totalBookings = await bookingCollection.countDocuments();
+
+          // 2. Breakdown by role
+          const totalOwners = await userCollection.countDocuments({
+            role: "owner",
+          });
+          const totalTenants = await userCollection.countDocuments({
+            role: "tenant",
+          });
+
+          // 3. Property status breakdown
+          const pendingProperties = await propertiesCollection.countDocuments({
+            status: "pending",
+          });
+          const approvedProperties = await propertiesCollection.countDocuments({
+            status: "approved",
+          });
+          const rejectedProperties = await propertiesCollection.countDocuments({
+            status: "rejected",
+          });
+
+          // 4. Total platform revenue (all approved bookings)
+          const allBookings = await bookingCollection.find().toArray();
+          const confirmedBookings = allBookings.filter((b) => {
+            const status = b.BookingStatus?.toLowerCase();
+            return status === "approved" || status === "success";
+          });
+
+          const totalRevenue = confirmedBookings.reduce((sum, b) => {
+            return sum + (Number(b.price) || 0);
+          }, 0);
+
+          // 5. Monthly revenue for last 12 months
+          const now = new Date();
+          const twelveMonthsAgo = new Date(
+            now.getFullYear(),
+            now.getMonth() - 11,
+            1,
+          );
+
+          const monthlyMap = {};
+          for (let i = 11; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+            const label = d.toLocaleString("default", {
+              month: "short",
+              year: "2-digit",
+            });
+            monthlyMap[key] = { month: label, revenue: 0, bookings: 0 };
+          }
+
+          confirmedBookings.forEach((b) => {
+            const date = new Date(b.moveInDate);
+            if (date >= twelveMonthsAgo) {
+              const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+              if (monthlyMap[key]) {
+                monthlyMap[key].revenue += Number(b.price) || 0;
+                monthlyMap[key].bookings += 1;
+              }
+            }
+          });
+
+          const monthlyStats = Object.values(monthlyMap);
+
+          // 6. Property type breakdown
+          const propertyTypes = await propertiesCollection
+            .aggregate([
+              { $group: { _id: "$propertyType", count: { $sum: 1 } } },
+              { $sort: { count: -1 } },
+            ])
+            .toArray();
+
+          const propertyTypeStats = propertyTypes.map((p) => ({
+            type: p._id || "Unknown",
+            count: p.count,
+          }));
+
+          res.json({
+            totalUsers,
+            totalOwners,
+            totalTenants,
+            totalProperties,
+            totalBookings,
+            totalRevenue,
+            pendingProperties,
+            approvedProperties,
+            rejectedProperties,
+            monthlyStats,
+            propertyTypeStats,
+          });
+        } catch (error) {
+          console.error("Admin analytics error:", error);
+          res.status(500).json({ error: "Failed to fetch admin analytics" });
+        }
+      },
+    );
 
     await client.db("admin").command({ ping: 1 });
     console.log(
