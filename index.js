@@ -402,6 +402,111 @@ async function run() {
       res.send(result);
     });
 
+    //tenant analytics
+    app.get(
+      "/api/tenant/analytics",
+      verifyToken,
+      tenantVerify,
+      async (req, res) => {
+        try {
+          const tenantId = req.user.id || req.user.sub;
+
+          // 1. All bookings for this tenant
+          const allBookings = await bookingCollection
+            .find({ tenantId })
+            .toArray();
+
+          const totalBookings = allBookings.length;
+
+          const approvedBookings = allBookings.filter(
+            (b) =>
+              b.BookingStatus?.toLowerCase() === "approved" ||
+              b.BookingStatus?.toLowerCase() === "success",
+          );
+          const pendingBookings = allBookings.filter(
+            (b) => b.BookingStatus?.toLowerCase() === "pending",
+          );
+          const cancelledBookings = allBookings.filter(
+            (b) =>
+              b.BookingStatus?.toLowerCase() === "cancelled" ||
+              b.BookingStatus?.toLowerCase() === "rejected",
+          );
+
+          // 2. Total amount spent (approved only)
+          const totalSpent = approvedBookings.reduce(
+            (sum, b) => sum + (Number(b.price) || 0),
+            0,
+          );
+
+          // 3. Saved favorites count
+          const totalFavorites = await favoriteCollection.countDocuments({
+            tenantId,
+          });
+
+          // 4. Monthly spending for last 6 months
+          const now = new Date();
+          const sixMonthsAgo = new Date(
+            now.getFullYear(),
+            now.getMonth() - 5,
+            1,
+          );
+
+          const monthlyMap = {};
+          for (let i = 5; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+            const label = d.toLocaleString("default", {
+              month: "short",
+              year: "2-digit",
+            });
+            monthlyMap[key] = { month: label, spent: 0 };
+          }
+
+          approvedBookings.forEach((b) => {
+            const date = new Date(b.moveInDate);
+            if (date >= sixMonthsAgo) {
+              const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+              if (monthlyMap[key]) {
+                monthlyMap[key].spent += Number(b.price) || 0;
+              }
+            }
+          });
+
+          const monthlySpending = Object.values(monthlyMap);
+
+          // 5. Recent bookings (last 5)
+          const recentBookings = [...allBookings]
+            .sort((a, b) => new Date(b.moveInDate) - new Date(a.moveInDate))
+            .slice(0, 3)
+            .map((b) => ({
+              id: b._id,
+              title: b.title,
+              location: b.location,
+              price: b.price,
+              rentType: b.rentType,
+              moveInDate: b.moveInDate,
+              status: b.BookingStatus,
+              image: b.image,
+              ownerName: b.ownerName,
+            }));
+
+          res.json({
+            totalBookings,
+            totalApproved: approvedBookings.length,
+            totalPending: pendingBookings.length,
+            totalCancelled: cancelledBookings.length,
+            totalSpent,
+            totalFavorites,
+            monthlySpending,
+            recentBookings,
+          });
+        } catch (error) {
+          console.error("Tenant analytics error:", error);
+          res.status(500).json({ error: "Failed to fetch tenant analytics" });
+        }
+      },
+    );
+
     //owner analytics
     app.get(
       "/api/owner/analytics",
