@@ -53,6 +53,7 @@ const verifyToken = async (req, res, next) => {
     });
   }
 };
+
 const tenantVerify = async (req, res, next) => {
   const user = req.user;
   if (user.role !== "tenant") {
@@ -192,37 +193,30 @@ async function run() {
       res.send(result);
     });
 
-    app.patch(
-      "/api/properties/:id",
-      verifyToken,
-      ownerVerify,
-      async (req, res) => {
-        const id = req.params.id;
-        const updatedData = req.body;
+    app.patch("/api/properties/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const updatedData = req.body;
 
-        const filter = { _id: new ObjectId(id) };
-        const updateDoc = {
-          $set: updatedData,
-        };
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = {
+        $set: updatedData,
+      };
 
-        const result = await propertiesCollection.updateOne(filter, updateDoc);
-        res.send(result);
-      },
-    );
+      console.log("PATCH id:", id);
+      console.log("PATCH body:", req.body);
+      console.log("PATCH result:", result);
+      const result = await propertiesCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
 
-    app.delete(
-      "/api/properties/:id",
-      verifyToken,
-      ownerVerify,
-      async (req, res) => {
-        const id = req.params.id;
-        const query = {
-          _id: new ObjectId(id),
-        };
-        const result = await propertiesCollection.deleteOne(query);
-        res.send(result);
-      },
-    );
+    app.delete("/api/properties/:id", verifyToken, async (req, res) => {
+      const id = req.params.id;
+      const query = {
+        _id: new ObjectId(id),
+      };
+      const result = await propertiesCollection.deleteOne(query);
+      res.send(result);
+    });
 
     //Homepage properties
     app.get("/api/home-properties", async (req, res) => {
@@ -235,7 +229,7 @@ async function run() {
     });
 
     //booking
-    app.get("/api/bookings", async (req, res) => {
+    app.get("/api/bookings", verifyToken, async (req, res) => {
       const query = {};
       if (req.query.tenantId) {
         query.tenantId = req.query.tenantId;
@@ -341,6 +335,9 @@ async function run() {
 
     //favorites
     app.get("/api/favorites", async (req, res) => {
+      const { page = 1, limit = 10, all } = req.query;
+      const skip = (Number(page) - 1) * Number(limit);
+
       const query = {};
       if (req.query.tenantId) {
         query.tenantId = req.query.tenantId;
@@ -348,9 +345,24 @@ async function run() {
       if (req.query.propertyId) {
         query.propertyId = req.query.propertyId;
       }
-      const cursor = favoriteCollection.find(query);
+
+      const totalData = await favoriteCollection.countDocuments(query);
+      const totalPage = Math.ceil(totalData / Number(limit));
+
+      let cursor = favoriteCollection.find(query);
+
+      if (all !== "true") {
+        cursor = cursor.skip(skip).limit(Number(limit));
+      }
+
       const result = await cursor.toArray();
-      res.send(result);
+
+      res.send({
+        data: result,
+        page: Number(page),
+        totalPage,
+        totalData,
+      });
     });
 
     app.post("/api/favorites", verifyToken, tenantVerify, async (req, res) => {
