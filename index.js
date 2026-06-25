@@ -249,7 +249,7 @@ async function run() {
       res.send(result);
     });
 
-    app.patch("/api/bookings/:id", async (req, res) => {
+    app.patch("/api/bookings/:id", verifyToken, ownerVerify, async (req, res) => {
       const { id } = req.params;
       const { BookingStatus } = req.body;
 
@@ -396,6 +396,88 @@ async function run() {
       const result = await RejectionReasonCollection.insertOne(newRejection);
       res.send(result);
     });
+
+    //owner analytics
+    app.get(
+      "/api/owner/analytics",
+      verifyToken,
+      ownerVerify,
+      async (req, res) => {
+        try {
+          const ownerId = req.user.id || req.user.sub;
+
+          const totalProperties = await propertiesCollection.countDocuments({
+            userId: ownerId,
+          });
+
+          const allBookings = await bookingCollection
+            .find({ ownerId: ownerId })
+            .toArray();
+          console.log("ownerId:", ownerId);
+          console.log("allBookings count:", allBookings.length);
+
+          const confirmedBookings = allBookings.filter((b) => {
+            const status = b.BookingStatus?.toLowerCase();
+            return status === "approved" || status === "success";
+          });
+
+          const totalBookings = confirmedBookings.length;
+          console.log("ownerId from token:", ownerId);
+          console.log("sample booking ownerId:", allBookings[0]?.ownerId);
+          console.log("match:", ownerId === allBookings[0]?.ownerId);
+
+          const totalEarnings = confirmedBookings.reduce((sum, b) => {
+            return sum + (Number(b.price) || 0);
+          }, 0);
+          console.log("ownerId:", ownerId);
+          console.log("allBookings:", allBookings);
+          console.log("confirmedBookings:", confirmedBookings);
+
+          const now = new Date();
+          const twelveMonthsAgo = new Date(
+            now.getFullYear(),
+            now.getMonth() - 11,
+            1,
+          );
+
+          const monthlyMap = {};
+
+          for (let i = 11; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+            const label = d.toLocaleString("default", {
+              month: "short",
+              year: "2-digit",
+            });
+            monthlyMap[key] = { month: label, earnings: 0 };
+          }
+
+          confirmedBookings.forEach((b) => {
+            const date = new Date(b.createdAt || b.moveInDate);
+            if (date >= twelveMonthsAgo) {
+              const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+              if (monthlyMap[key]) {
+                monthlyMap[key].earnings += Number(b.price) || 0;
+              }
+            }
+          });
+
+          const monthlyEarnings = Object.values(monthlyMap);
+
+          res.json({
+            totalEarnings,
+            totalProperties,
+            totalBookings,
+            monthlyEarnings,
+          });
+        } catch (error) {
+          console.error("Owner analytics error:", error);
+          res.status(500).json({ error: "Failed to fetch analytics" });
+        }
+      },
+    );
+
+    
 
     await client.db("admin").command({ ping: 1 });
     console.log(
