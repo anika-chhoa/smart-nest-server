@@ -300,32 +300,43 @@ async function run() {
         ownerEmail,
         image,
       } = req.body;
-      const isExist = await bookingCollection.findOne({ sessionId });
-      if (isExist) {
-        return res.json({ msg: "Already Exists!" });
+
+      try {
+        // Check if the booking already exists
+        const isExist = await bookingCollection.findOne({ sessionId });
+        if (isExist) {
+          return res.status(400).json({ msg: "Already Exists!" });
+        }
+
+        // Insert the new booking with createdAt timestamp
+        await bookingCollection.insertOne({
+          sessionId,
+          transactionId,
+          chargeId,
+          tenantId,
+          tenantEmail,
+          propertyId,
+          title,
+          price,
+          location,
+          rentType,
+          tenantFullName,
+          moveInDate,
+          contactNumber,
+          additionalNotes,
+          BookingStatus,
+          ownerId,
+          ownerName,
+          ownerEmail,
+          image,
+          createdAt: new Date(),
+        });
+
+        res.json({ msg: "Payment Successful" });
+      } catch (error) {
+        console.error("Booking error:", error);
+        res.status(500).json({ msg: "Internal Server Error" });
       }
-      await bookingCollection.insertOne({
-        sessionId,
-        transactionId,
-        chargeId,
-        tenantId,
-        tenantEmail,
-        propertyId,
-        title,
-        price,
-        location,
-        rentType,
-        tenantFullName,
-        moveInDate,
-        contactNumber,
-        additionalNotes,
-        BookingStatus,
-        ownerId,
-        ownerName,
-        ownerEmail,
-        image,
-      });
-      res.json({ msg: "Payment Successful" });
     });
 
     //reviews
@@ -434,6 +445,7 @@ async function run() {
     });
 
     //tenant analytics
+    
     app.get(
       "/api/tenant/analytics",
       verifyToken,
@@ -442,7 +454,6 @@ async function run() {
         try {
           const tenantId = req.user.id || req.user.sub;
 
-          // 1. All bookings for this tenant
           const allBookings = await bookingCollection
             .find({ tenantId })
             .toArray();
@@ -463,26 +474,19 @@ async function run() {
               b.BookingStatus?.toLowerCase() === "rejected",
           );
 
-          // 2. Total amount spent (approved only)
-          const totalSpent = approvedBookings.reduce(
-            (sum, b) => sum + (Number(b.price) || 0),
-            0,
-          );
+          // FIX: Clean the string price safely exactly like the admin panel
+          const totalSpent = approvedBookings.reduce((sum, b) => {
+            const cleanPrice = String(b.price || 0).replace(/[^0-9.]/g, "");
+            return sum + (Number(cleanPrice) || 0);
+          }, 0);
 
-          // 3. Saved favorites count
           const totalFavorites = await favoriteCollection.countDocuments({
             tenantId,
           });
 
-          // 4. Monthly spending for last 6 months
           const now = new Date();
-          const sixMonthsAgo = new Date(
-            now.getFullYear(),
-            now.getMonth() - 5,
-            1,
-          );
-
           const monthlyMap = {};
+
           for (let i = 5; i >= 0; i--) {
             const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -494,23 +498,32 @@ async function run() {
           }
 
           approvedBookings.forEach((b) => {
-            const date = new Date(b.moveInDate);
-            if (date >= sixMonthsAgo) {
-              const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-              if (monthlyMap[key]) {
-                monthlyMap[key].spent += Number(b.price) || 0;
-              }
+            const rawDate = b.createdAt || b.moveInDate;
+            if (!rawDate) return;
+
+            const date = new Date(rawDate);
+            if (isNaN(date.getTime())) return;
+
+            const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+            if (monthlyMap[key]) {
+              // FIX: Clean string price before calculating monthly aggregations
+              const cleanPrice = String(b.price || 0).replace(/[^0-9.]/g, "");
+              monthlyMap[key].spent += Number(cleanPrice) || 0;
             }
           });
 
           const monthlySpending = Object.values(monthlyMap);
 
-          // 5. Recent bookings (last 5)
+          // FIX: Sort by actual record creation date, map id to string safely
           const recentBookings = [...allBookings]
-            .sort((a, b) => new Date(b.moveInDate) - new Date(a.moveInDate))
-            .slice(0, 3)
+            .sort(
+              (a, b) =>
+                new Date(b.createdAt || b.moveInDate) -
+                new Date(a.createdAt || a.moveInDate),
+            )
+            .slice(0, 5) // Subheading says "Your 5 most recent reservations" — adjusted slice from 3 to 5
             .map((b) => ({
-              id: b._id,
+              id: String(b._id),
               title: b.title,
               location: b.location,
               price: b.price,
@@ -539,13 +552,14 @@ async function run() {
     );
 
     //owner analytics
+
     app.get(
       "/api/owner/analytics",
       verifyToken,
       ownerVerify,
       async (req, res) => {
         try {
-          const ownerId = req.user.id || req.user.sub;
+          const ownerId = req.user?.id || req.user?.sub || req.user?._id;
 
           const totalProperties = await propertiesCollection.countDocuments({
             userId: ownerId,
@@ -554,8 +568,6 @@ async function run() {
           const allBookings = await bookingCollection
             .find({ ownerId: ownerId })
             .toArray();
-          console.log("ownerId:", ownerId);
-          console.log("allBookings count:", allBookings.length);
 
           const confirmedBookings = allBookings.filter((b) => {
             const status = b.BookingStatus?.toLowerCase();
@@ -563,53 +575,100 @@ async function run() {
           });
 
           const totalBookings = confirmedBookings.length;
-          console.log("ownerId from token:", ownerId);
-          console.log("sample booking ownerId:", allBookings[0]?.ownerId);
-          console.log("match:", ownerId === allBookings[0]?.ownerId);
 
           const totalEarnings = confirmedBookings.reduce((sum, b) => {
-            return sum + (Number(b.price) || 0);
+            const cleanPrice = String(b.price || 0).replace(/[^0-9.]/g, "");
+            return sum + (Number(cleanPrice) || 0);
           }, 0);
-          console.log("ownerId:", ownerId);
-          console.log("allBookings:", allBookings);
-          console.log("confirmedBookings:", confirmedBookings);
 
-          const now = new Date();
-          const twelveMonthsAgo = new Date(
-            now.getFullYear(),
-            now.getMonth() - 11,
-            1,
-          );
-
+          // --- STABLE ROLLING 12-MONTH TIMELINE GENERATOR ---
           const monthlyMap = {};
+          const now = new Date();
 
           for (let i = 11; i >= 0; i--) {
-            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+            const d = new Date(now.getFullYear(), now.getMonth(), 1);
+            d.setMonth(d.getMonth() - i);
+
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, "0");
+            const key = `${year}-${month}`;
+
             const label = d.toLocaleString("default", {
               month: "short",
               year: "2-digit",
             });
+
             monthlyMap[key] = { month: label, earnings: 0 };
           }
 
+          // --- AGGREGATE DATA ENTRIES ---
           confirmedBookings.forEach((b) => {
-            const date = new Date(b.createdAt || b.moveInDate);
-            if (date >= twelveMonthsAgo) {
-              const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-              if (monthlyMap[key]) {
-                monthlyMap[key].earnings += Number(b.price) || 0;
-              }
+            const rawDate = b.createdAt || b.moveInDate;
+            if (!rawDate) return;
+
+            let key = "";
+
+            const date = new Date(rawDate);
+            if (!isNaN(date.getTime())) {
+              const year = date.getFullYear();
+              const month = String(date.getMonth() + 1).padStart(2, "0");
+              key = `${year}-${month}`;
+            } else if (typeof rawDate === "string" && rawDate.includes("-")) {
+              const parts = rawDate.split("-");
+              key = `${parts[0]}-${parts[1].padStart(2, "0")}`;
+            }
+
+            if (key && monthlyMap[key]) {
+              const cleanPrice = String(b.price || 0).replace(/[^0-9.]/g, "");
+              monthlyMap[key].earnings += Number(cleanPrice) || 0;
             }
           });
 
           const monthlyEarnings = Object.values(monthlyMap);
+
+          // --- TEMP DEBUG - remove after fixing ---
+          const debugMonthlyMap = {};
+          const debugNow = new Date();
+          for (let i = 11; i >= 0; i--) {
+            const d = new Date(debugNow.getFullYear(), debugNow.getMonth(), 1);
+            d.setMonth(d.getMonth() - i);
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, "0");
+            debugMonthlyMap[`${year}-${month}`] = true;
+          }
 
           res.json({
             totalEarnings,
             totalProperties,
             totalBookings,
             monthlyEarnings,
+            // TEMP DEBUG - remove after fixing
+            debug: {
+              ownerId,
+              ownerIdType: typeof ownerId,
+              allBookingsCount: allBookings.length,
+              confirmedBookingsCount: confirmedBookings.length,
+              confirmedBookingsSample: confirmedBookings
+                .slice(0, 3)
+                .map((b) => ({
+                  ownerId: b.ownerId,
+                  ownerIdType: typeof b.ownerId,
+                  price: b.price,
+                  status: b.BookingStatus,
+                  createdAt: b.createdAt,
+                  moveInDate: b.moveInDate,
+                  dateKey: (() => {
+                    const rawDate = b.createdAt || b.moveInDate;
+                    if (!rawDate) return "NO DATE";
+                    const date = new Date(rawDate);
+                    if (!isNaN(date.getTime())) {
+                      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+                    }
+                    return "INVALID DATE: " + rawDate;
+                  })(),
+                })),
+              monthlyMapKeys: Object.keys(debugMonthlyMap),
+            },
           });
         } catch (error) {
           console.error("Owner analytics error:", error);
@@ -619,6 +678,7 @@ async function run() {
     );
 
     //admin analytics
+
     app.get(
       "/api/admin/analytics",
       verifyToken,
@@ -649,7 +709,7 @@ async function run() {
             status: "rejected",
           });
 
-          // 4. Total platform revenue (all approved bookings)
+          // 4. Gather & parse approved/success transactions safely
           const allBookings = await bookingCollection.find().toArray();
           const confirmedBookings = allBookings.filter((b) => {
             const status = b.BookingStatus?.toLowerCase();
@@ -657,42 +717,58 @@ async function run() {
           });
 
           const totalRevenue = confirmedBookings.reduce((sum, b) => {
-            return sum + (Number(b.price) || 0);
+            const cleanPrice = String(b.price || 0).replace(/[^0-9.]/g, "");
+            return sum + (Number(cleanPrice) || 0);
           }, 0);
 
-          // 5. Monthly revenue for last 12 months
-          const now = new Date();
-          const twelveMonthsAgo = new Date(
-            now.getFullYear(),
-            now.getMonth() - 11,
-            1,
-          );
-
+          // 5. --- STABLE ROLLING 12-MONTH TIMELINE GENERATOR ---
           const monthlyMap = {};
+          const now = new Date();
+
           for (let i = 11; i >= 0; i--) {
-            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-            const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+            const d = new Date(now.getFullYear(), now.getMonth(), 1);
+            d.setMonth(d.getMonth() - i);
+
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, "0");
+            const key = `${year}-${month}`;
+
             const label = d.toLocaleString("default", {
               month: "short",
               year: "2-digit",
             });
+
+            // Structure keys matches frontend Recharts requirements (revenue and bookings)
             monthlyMap[key] = { month: label, revenue: 0, bookings: 0 };
           }
 
+          // 6. --- AGGREGATE DATA ENTRIES ---
           confirmedBookings.forEach((b) => {
-            const date = new Date(b.moveInDate);
-            if (date >= twelveMonthsAgo) {
-              const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-              if (monthlyMap[key]) {
-                monthlyMap[key].revenue += Number(b.price) || 0;
-                monthlyMap[key].bookings += 1;
-              }
+            const rawDate = b.createdAt || b.moveInDate;
+            if (!rawDate) return;
+
+            let key = "";
+            const date = new Date(rawDate);
+
+            if (!isNaN(date.getTime())) {
+              const year = date.getFullYear();
+              const month = String(date.getMonth() + 1).padStart(2, "0");
+              key = `${year}-${month}`;
+            } else if (typeof rawDate === "string" && rawDate.includes("-")) {
+              const parts = rawDate.split("-");
+              key = `${parts[0]}-${parts[1].padStart(2, "0")}`;
+            }
+
+            if (key && monthlyMap[key]) {
+              const cleanPrice = String(b.price || 0).replace(/[^0-9.]/g, "");
+              monthlyMap[key].revenue += Number(cleanPrice) || 0;
+              monthlyMap[key].bookings += 1;
             }
           });
 
           const monthlyStats = Object.values(monthlyMap);
 
-          // 6. Property type breakdown
+          // 7. Property type breakdown
           const propertyTypes = await propertiesCollection
             .aggregate([
               { $group: { _id: "$propertyType", count: { $sum: 1 } } },
@@ -705,6 +781,7 @@ async function run() {
             count: p.count,
           }));
 
+          // Return identical payload shapes matching your frontend variables
           res.json({
             totalUsers,
             totalOwners,
@@ -724,7 +801,6 @@ async function run() {
         }
       },
     );
-
     // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
