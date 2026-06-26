@@ -4,7 +4,7 @@ const app = express();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 require("dotenv").config();
-const port = 5000;
+const port = process.env.PORT;
 
 app.use(cors());
 app.use(express.json());
@@ -79,7 +79,7 @@ const adminVerify = async (req, res, next) => {
 async function run() {
   try {
     // Connect the client to the server	(optional starting in v4.7)
-    await client.connect();
+    // await client.connect();
     // Send a ping to confirm a successful connection
 
     const database = client.db("smart-nest");
@@ -91,9 +91,29 @@ async function run() {
     const RejectionReasonCollection = database.collection("rejections");
 
     //all users
-    app.get("/api/users", async (req, res) => {
-      const result = await userCollection.find().toArray();
-      res.send(result);
+    app.get("/api/users", verifyToken, adminVerify, async (req, res) => {
+      try {
+        const { page = 1, limit = 10 } = req.query;
+        const skip = (Number(page) - 1) * Number(limit);
+
+        const totalData = await userCollection.countDocuments();
+        const totalPage = Math.ceil(totalData / Number(limit));
+
+        const result = await userCollection
+          .find()
+          .skip(skip)
+          .limit(Number(limit))
+          .toArray();
+
+        res.json({
+          data: result,
+          page: Number(page),
+          totalPage,
+          totalData,
+        });
+      } catch (error) {
+        res.status(500).json({ error: "Failed to fetch users" });
+      }
     });
 
     app.patch("/api/users/:id", async (req, res) => {
@@ -175,12 +195,12 @@ async function run() {
       res.send({ data: result, page: Number(page), totalPage, totalData });
     });
 
-    app.get("/api/properties/:id", verifyToken, async (req, res) => {
+    app.get("/api/properties/:id", async (req, res) => {
       const { id } = req.params;
       const result = await propertiesCollection.findOne({
         _id: new ObjectId(id),
       });
-      res.send(result);
+      res.json(result);
     });
 
     app.post("/api/properties", verifyToken, ownerVerify, async (req, res) => {
@@ -195,20 +215,15 @@ async function run() {
 
     app.patch("/api/properties/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
-      const updatedData = req.body;
-
-      const filter = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: updatedData,
-      };
-
-      console.log("PATCH id:", id);
-      console.log("PATCH body:", req.body);
-      console.log("PATCH result:", result);
-      const result = await propertiesCollection.updateOne(filter, updateDoc);
-      res.send(result);
+      try {
+        const filter = { _id: new ObjectId(id) };
+        const updateData = { $set: req.body }; // ✅ any name works
+        const result = await propertiesCollection.updateOne(filter, updateData);
+        res.json(result);
+      } catch (err) {
+        res.status(500).send(err.message);
+      }
     });
-
     app.delete("/api/properties/:id", verifyToken, async (req, res) => {
       const id = req.params.id;
       const query = {
@@ -314,7 +329,11 @@ async function run() {
     });
 
     //reviews
-    app.post("/api/reviews", async (req, res) => {
+    app.get("/api/reviews", async (req, res) => {
+      const result = await reviewCollection.find().limit(4).toArray();
+      res.json(result);
+    });
+    app.post("/api/reviews", verifyToken, tenantVerify, async (req, res) => {
       try {
         const review = req.body;
         const updatedReview = {
@@ -334,7 +353,7 @@ async function run() {
     });
 
     //favorites
-    app.get("/api/favorites", async (req, res) => {
+    app.get("/api/favorites", verifyToken, tenantVerify, async (req, res) => {
       const { page = 1, limit = 10, all } = req.query;
       const skip = (Number(page) - 1) * Number(limit);
 
@@ -706,7 +725,7 @@ async function run() {
       },
     );
 
-    await client.db("admin").command({ ping: 1 });
+    // await client.db("admin").command({ ping: 1 });
     console.log(
       "Pinged your deployment. You successfully connected to MongoDB!",
     );
